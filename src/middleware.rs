@@ -1,13 +1,21 @@
 use std::{
-    borrow::Cow,
     ops::Deref,
     rc::Rc,
+    str::FromStr,
     task::{Context, Poll},
 };
 
 use actix_service::{Service, Transform};
-use actix_web::{Error, FromRequest, HttpMessage, HttpRequest, dev::{Payload, ServiceRequest, ServiceResponse}, error::{ErrorBadRequest, ErrorInternalServerError}};
-use futures::{FutureExt, future::{Either, LocalBoxFuture, Ready, err, ok}};
+use actix_web::{
+    dev::{Payload, ServiceRequest, ServiceResponse},
+    error::{ErrorBadRequest},
+    http::{HeaderName, HeaderValue},
+    Error, FromRequest, HttpMessage, HttpRequest,
+};
+use futures::{
+    future::{err, ok, Either, LocalBoxFuture, Ready},
+    FutureExt,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -43,8 +51,32 @@ impl FromRequest for CorrelationId {
         if let Some(s) = req.extensions().get::<CorrelationId>() {
             ok(s.clone())
         } else {
-            println!("use correlation middleware in pipeline");
-            err(ErrorInternalServerError("internal server error"))
+            unreachable!("use correlation middleware in pipeline");
+        }
+    }
+}
+
+pub trait CorrelationIdVariable {
+    fn add_corr_id(self) -> Self;
+}
+
+pub trait CorrelationIdPropagate {
+    fn with_corr_id(self, v: CorrelationId) -> Self;
+}
+
+pub trait CorrelationIdExtract {
+    fn corr_id(&self) -> CorrelationId;
+}
+
+impl<T> CorrelationIdExtract for T
+where
+    T: HttpMessage,
+{
+    fn corr_id(&self) -> CorrelationId {
+        if let Some(s) = self.extensions().get::<CorrelationId>() {
+            s.clone()
+        } else {
+            unreachable!("use correlation middleware in pipeline");
         }
     }
 }
@@ -73,8 +105,11 @@ impl Correlation {
     }
 
     /// The name of the header from which the Correlation ID is read from the request
-    pub fn header_name(mut self, v: String) -> Self {
-        Rc::get_mut(&mut self.config).unwrap().header_name = v;
+    pub fn header_name<T>(mut self, v: T) -> Self
+    where
+        T: Into<String>,
+    {
+        Rc::get_mut(&mut self.config).unwrap().header_name = v.into();
         self
     }
 
@@ -86,8 +121,11 @@ impl Correlation {
     }
 
     /// The name of the header to which the Correlation ID is written for the response
-    pub fn resp_header_name(mut self, v: Option<String>) -> Self {
-        Rc::get_mut(&mut self.config).unwrap().resp_header_name = v;
+    pub fn resp_header_name<T>(mut self, v: Option<T>) -> Self
+    where
+        T: Into<String>,
+    {
+        Rc::get_mut(&mut self.config).unwrap().resp_header_name = v.map(|x| x.into());
         self
     }
 
@@ -132,7 +170,10 @@ where
     type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = Either<Ready<Result<Self::Response, Self::Error>>, LocalBoxFuture<'static, Result<Self::Response, Self::Error>>>;
+    type Future = Either<
+        Ready<Result<Self::Response, Self::Error>>,
+        LocalBoxFuture<'static, Result<Self::Response, Self::Error>>,
+    >;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
@@ -163,20 +204,28 @@ where
         let fut = self.service.call(req);
         let config = Rc::clone(&self.config);
 
-        Either::Right(async move {
-            let resp = fut.await;
+        Either::Right(
+            async move {
+                let mut resp = fut.await?;
 
-            if config.include_in_resp {
-                let name = match config.resp_header_name {
-                    Some(ref s) => s,
-                    None => &config.header_name
-                };
+                if config.include_in_resp {
+                    let name = match config.resp_header_name {
+                        Some(ref s) => s,
+                        None => &config.header_name,
+                    };
 
+                    let corr_id = resp.request().corr_id();
 
+                    resp.headers_mut().insert(
+                        HeaderName::from_str(name).unwrap(),
+                        HeaderValue::from_str(&corr_id).unwrap(),
+                    );
+                }
+
+                Ok(resp)
             }
-
-            resp
-        }.boxed_local())
+            .boxed_local(),
+        )
     }
 }
 

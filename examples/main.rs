@@ -1,21 +1,45 @@
-use std::{io::Read, sync::Arc};
-
 use actix_web::{
-    dev::ServiceRequest,
-    error::{ErrorForbidden, ErrorInternalServerError},
+    client::Client,
+    middleware::Logger,
     web::{self},
-    App, Error, HttpServer, Responder,
+    App, Error, HttpResponse, HttpServer,
 };
-use futures::future::{ready, Ready};
+use actix_web_correlation_id::{
+    Correlation, CorrelationId, CorrelationIdPropagate, CorrelationIdVariable,
+};
 
-async fn index() -> impl Responder {
-    "this_is_response_body"
+async fn index(corr_id: CorrelationId) -> Result<HttpResponse, Error> {
+    let client = Client::new();
+
+    let mut res = client
+        .get("http://google.com/")
+        .with_corr_id(corr_id)
+        .send()
+        .await?;
+
+    let mut client_resp = HttpResponse::build(res.status());
+
+    Ok(client_resp.body(res.body().await?))
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+
     HttpServer::new(move || {
-        App::new().service(web::resource("/simple").route(web::post().to(index)))
+        App::new()
+            .wrap(
+                Logger::new("%{corr-id}xi %a \"%r\" %s %b \"%{Referer}i\" \"%{User-Agent}i\" %T")
+                    .add_corr_id(),
+            )
+            .wrap(
+                Correlation::new()
+                    .header_name("x-correlation-id")
+                    .enforce_header(false)
+                    .resp_header_name(Some("x-correlation-id"))
+                    .include_in_resp(true),
+            )
+            .service(web::resource("/simple").route(web::post().to(index)))
     })
     .bind("127.0.0.1:8080")?
     .run()

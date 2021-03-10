@@ -2,7 +2,7 @@
 name = "actix-web-correlation-id"
 version = "0.1.0"
 authors = ["Irek Nigmatullin <nigma143@mail.ru>"]
-description = "Actix-web middleware to sign and verify detached jws"
+description = "An Actix-web middleware component which synchronises a correlation ID for cross API request logging"
 documentation = "http://docs.rs/actix-web-correlation-id/"
 repository = "http://github.com/nigma143/actix-web-correlation-id"
 readme = "README.md"
@@ -19,6 +19,7 @@ actix-service = "1.0"
 uuid = { version = "0.8.2", features = ["v4"] }
 
 [dev-dependencies]
+env_logger = "0.8.3"
 
 [[example]]
 name = "main" # examples/main.rs
