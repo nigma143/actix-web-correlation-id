@@ -92,11 +92,18 @@
 //!     .await
 //! }
 //! ```
+#[cfg(feature = "client")]
 pub mod client;
+
+#[cfg(feature = "logger")]
 pub mod logger;
+
 pub mod middleware;
 
+#[cfg(feature = "client")]
 pub use crate::client::*;
-pub use crate::logger::*;
-pub use crate::middleware::*;
 
+#[cfg(feature = "logger")]
+pub use crate::logger::*;
+
+pub use crate::middleware::*;
