@@ -6,13 +6,16 @@
 //!
 //! use actix_web::{
 //!     error,
-//!     http::{header::ContentType, StatusCode},
+//!     http::{
+//!         header::{ContentType, HeaderName},
+//!         StatusCode,
+//!     },
 //!     middleware::Logger,
 //!     web::{self},
 //!     App, HttpMessage, HttpResponse, HttpServer,
 //! };
 //! use actix_web_correlation_id::{
-//!     Correlation, CorrelationId, CorrelationIdPropagate, CorrelationIdVariable,
+//!     Correlation, CorrelationId, CorrelationIdHeaderPropagate, CorrelationIdVariable,
 //! };
 //! use awc::Client;
 //!
@@ -53,7 +56,7 @@
 //!
 //!     let mut res = client
 //!         .get("http://www.rust-lang.org/")
-//!         .with_corr_id(corr_id)
+//!         .with_correlation_id_header((HeaderName::from_static("x-correlation-id"), corr_id))
 //!         .send()
 //!         .await
 //!         .map_err(|send_request_error| AppError::SendRequestError(send_request_error.to_string()))?;
@@ -76,14 +79,14 @@
 //!         App::new()
 //!             .wrap(
 //!                 Logger::new("%{corr-id}xi %a \"%r\" %s %b \"%{Referer}i\" \"%{User-Agent}i\" %T")
-//!                     .add_corr_id(),
+//!                     .add_correlation_id(),
 //!             )
 //!             .wrap(
-//!                 Correlation::new()
-//!                     .req_header_name("x-correlation-id")
-//!                     .enforce_req_header(false)
-//!                     .resp_header_name(Some("x-correlation-id"))
-//!                     .include_in_resp(true),
+//!                 Correlation::default()
+//!                     .request_header_name(HeaderName::from_static("x-request-id"))
+//!                     .enforce_request_header(false)
+//!                     .response_header_name(HeaderName::from_static("x-correlation-id"))
+//!                     .include_in_response(true),
 //!             )
 //!             .service(web::resource("/simple").route(web::post().to(index)))
 //!     })
@@ -92,18 +95,18 @@
 //!     .await
 //! }
 //! ```
+mod core;
+
+pub use crate::core::*;
+
 #[cfg(feature = "client")]
 pub mod client;
-
-#[cfg(feature = "logger")]
-pub mod logger;
-
-pub mod middleware;
 
 #[cfg(feature = "client")]
 pub use crate::client::*;
 
 #[cfg(feature = "logger")]
-pub use crate::logger::*;
+pub mod logger;
 
-pub use crate::middleware::*;
+#[cfg(feature = "logger")]
+pub use crate::logger::*;
